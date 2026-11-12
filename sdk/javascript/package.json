@@ -1,0 +1,12 @@
+{
+  "name": "@pulsewatch/browser-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser and React SDK for PulseWatch error monitoring",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "README.md"],
+  "scripts": {"build": "tsc -p tsconfig.json"},
+  "devDependencies": {"typescript": "^5.6.3"}
+}

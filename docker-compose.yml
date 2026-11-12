@@ -1,0 +1,111 @@
+name: pulsewatch
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pulsewatch
+      POSTGRES_USER: pulsewatch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pulsewatch_local_only}
+    volumes:
+      - pulsewatch_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulsewatch -d pulsewatch"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [pulsewatch]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - pulsewatch_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [pulsewatch]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      APP_NAME: ${APP_NAME:-PulseWatch}
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+psycopg://pulsewatch:${POSTGRES_PASSWORD:-pulsewatch_local_only}@db:5432/pulsewatch
+      REDIS_URL: redis://redis:6379/0
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:8000}
+      EVENT_QUEUE_DRIVER: redis
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-before-sharing}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+      SESSION_COOKIE: ${SESSION_COOKIE:-pulsewatch_session}
+      REDIS_STREAM: ${REDIS_STREAM:-pulsewatch:events}
+      REDIS_CONSUMER_GROUP: ${REDIS_CONSUMER_GROUP:-pulsewatch-workers}
+      REDIS_DEAD_LETTER_STREAM: ${REDIS_DEAD_LETTER_STREAM:-pulsewatch:events:dead}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      MAX_EVENT_BYTES: ${MAX_EVENT_BYTES:-262144}
+      INGEST_RATE_PER_MINUTE: ${INGEST_RATE_PER_MINUTE:-120}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 10s
+      timeout: 4s
+      retries: 15
+      start_period: 20s
+    networks: [pulsewatch]
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      APP_NAME: ${APP_NAME:-PulseWatch}
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+psycopg://pulsewatch:${POSTGRES_PASSWORD:-pulsewatch_local_only}@db:5432/pulsewatch
+      REDIS_URL: redis://redis:6379/0
+      EVENT_QUEUE_DRIVER: redis
+      SESSION_SECRET: ${SESSION_SECRET:-change-this-before-sharing}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+      REDIS_STREAM: ${REDIS_STREAM:-pulsewatch:events}
+      REDIS_CONSUMER_GROUP: ${REDIS_CONSUMER_GROUP:-pulsewatch-workers}
+      REDIS_DEAD_LETTER_STREAM: ${REDIS_DEAD_LETTER_STREAM:-pulsewatch:events:dead}
+      REDIS_CLAIM_IDLE_MS: ${REDIS_CLAIM_IDLE_MS:-60000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [pulsewatch]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [pulsewatch]
+
+volumes:
+  pulsewatch_postgres:
+  pulsewatch_redis:
+
+networks:
+  pulsewatch:
+    driver: bridge

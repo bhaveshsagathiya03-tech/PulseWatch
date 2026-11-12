@@ -1,0 +1,16 @@
+.env
+.env.*.local
+!.env.example
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+.venv/
+venv/
+node_modules/
+.next/
+/dist/
+.pytest_cache/
+.coverage
+*.log
+.DS_Store
